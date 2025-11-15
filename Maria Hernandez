@@ -1,0 +1,443 @@
+-- Schema.sql
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS students (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+first_name TEXT NOT NULL,
+last_name TEXT NOT NUll,
+);
+
+CREATE TABLE IF NOT EXISTS quizzes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     subject TEXT NOT NULL,
+     num_questions INTEGER NOT NULL CHECK (num_questions >= 0),
+);
+
+CREATE TABLE IF NOT EXISTS results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    quiz_id INTEGER NOT NUll,
+    Score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY(quiz_id) REFERENCES quizzes(id)  ON DELETE CASCADE
+
+import sqlite3
+from datetime import datetime
+
+DB = 'hw13.db'
+
+def init_db():
+    conn = sq.lite3.connect(DB)
+    c = conn.cursor()
+    with open('schema.sql', 'r') as f:
+         c.executescript(f.read())
+
+c.execute("INSERT INTO students (first_name, last_name) VALUES (?, ?)", ('John', 'Smith')
+student_id = c.lastrowid
+
+quiz_date = '2015-02-05'
+c.execute("INSERT INTO quizzes (subject, num_questions, quiz_date) VALUES (?, ?, ?)",
+         (Python Basics', 5, quiz_date))
+quiz_id = c.lastrowid
+
+c.execute("INSERT INTO results (student_id, quiz_id, score) VALUES (?, ?, ?)",
+                               (student_id, quiz_id, 85))
+
+conn.commit()
+conn.close()
+print(f'Database {DB] created with simple data.')
+
+if__name__== '__main__':
+  init_db()
+
+
+import sqlite3
+from datetime import datetime
+
+DB = 'hw13.db'
+
+def init_db():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    with open('schema.sql', 'r') as f:
+        c.executescript(f.read())
+
+    c.execute("INSERT INTO students (first_name, last_name) VALUES (?, ?)", ('John', 'Smith'))
+    student_id = c.lastrowid
+
+    quiz_date = '2015-02-05'
+    c.execute("INSERT INTO quizzes (subject, num_questions, quiz_date) VALUES (?, ?, ?)",
+              ('Python Basics', 5, quiz_date))
+    quiz_id = c.lastrowid
+
+    c.execute("INSERT INTO results (student_id, quiz_id, score) VALUES (?, ?, ?)",
+              (student_id, quiz_id, 85))
+
+    conn.commit()
+    conn.close()
+    print(f'Database {DB} created with sample data.')
+
+if __name__ == '__main__':
+    init_db()
+```
+
+from flask import Flask, g, render_template, request, redirect, url_for, session, flash
+import sqlite3
+import os
+
+DATABASE = 'hw13.db'
+SECRET_KEY = 'devkey'  # for local use only
+
+app = Flask(__name__)
+app.config.from_mapping(SECRET_KEY=SECRET_KEY, DATABASE=DATABASE)
+
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(app.config['DATABASE'])
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA foreign_keys = ON;')
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def login_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == 'admin' and password == 'password':
+            session['logged_in'] = True
+            flash('Logged in successfully.')
+            return redirect(url_for('dashboard'))
+        else:
+            error = 'Invalid credentials. Try again.'
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+@login_required
+def logout():
+    session.clear()
+    flash('You have been logged out.')
+    return redirect(url_for('login'))
+
+@app.route('/')
+def index():
+    return redirect(url_for('login'))
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    db = get_db()
+    students = db.execute('SELECT id, first_name, last_name FROM students ORDER BY id').fetchall()
+    quizzes = db.execute('SELECT id, subject, num_questions, quiz_date FROM quizzes ORDER BY id').fetchall()
+    return render_template('dashboard.html', students=students, quizzes=quizzes)
+
+
+@app.route('/student/add', methods=['GET', 'POST'])
+@login_required
+def add_student():
+    error = None
+    if request.method == 'POST':
+        first_name = request.form.get('first_name', '').strip()
+        last_name = request.form.get('last_name', '').strip()
+        if not first_name or not last_name:
+            error = 'First name and last name are required.'
+        else:
+            db = get_db()
+            try:
+                db.execute('INSERT INTO students (first_name, last_name) VALUES (?, ?)', (first_name, last_name))
+                db.commit()
+                flash('Student added successfully.')
+                return redirect(url_for('dashboard'))
+            except Exception as e:
+                error = f'Error adding student: {e}'
+    return render_template('add_student.html', error=error)
+
+
+@app.route('/quiz/add', methods=['GET', 'POST'])
+@login_required
+def add_quiz():
+    error = None
+    if request.method == 'POST':
+        subject = request.form.get('subject', '').strip()
+        num_questions = request.form.get('num_questions', '').strip()
+        quiz_date = request.form.get('quiz_date', '').strip()
+        if not subject or not num_questions or not quiz_date:
+            error = 'All fields are required.'
+        else:
+            try:
+                num_q = int(num_questions)
+                db = get_db()
+                db.execute('INSERT INTO quizzes (subject, num_questions, quiz_date) VALUES (?, ?, ?)',
+                           (subject, num_q, quiz_date))
+                db.commit()
+                flash('Quiz added successfully.')
+                return redirect(url_for('dashboard'))
+            except ValueError:
+                error = 'Number of questions must be an integer.'
+            except Exception as e:
+                error = f'Error adding quiz: {e}'
+    return render_template('add_quiz.html', error=error)
+
+
+@app.route('/student/<int:student_id>')
+@login_required
+def student_results(student_id):
+    db = get_db()
+    student = db.execute('SELECT id, first_name, last_name FROM students WHERE id = ?', (student_id,)).fetchone()
+    if student is None:
+        flash('Student not found.')
+        return redirect(url_for('dashboard'))
+    results = db.execute('''
+        SELECT r.id as result_id, q.id as quiz_id, q.subject, r.score
+        FROM results r
+        JOIN quizzes q ON r.quiz_id = q.id
+        WHERE r.student_id = ?
+        ORDER BY q.id
+    ''', (student_id,)).fetchall()
+    return render_template('student_results.html', student=student, results=results)
+
+@app.route('/results/add', methods=['GET', 'POST'])
+@login_required
+def add_result():
+    db = get_db()
+    error = None
+    students = db.execute('SELECT id, first_name, last_name FROM students ORDER BY id').fetchall()
+    quizzes = db.execute('SELECT id, subject FROM quizzes ORDER BY id').fetchall()
+
+    if request.method == 'POST':
+        student_id = request.form.get('student_id')
+        quiz_id = request.form.get('quiz_id')
+        score = request.form.get('score')
+        if not student_id or not quiz_id or score is None:
+            error = 'All fields are required.'
+        else:
+            try:
+                sid = int(student_id)
+                qid = int(quiz_id)
+                s = int(score)
+                if s < 0 or s > 100:
+                    raise ValueError('Score must be between 0 and 100')
+                db.execute('INSERT INTO results (student_id, quiz_id, score) VALUES (?, ?, ?)', (sid, qid, s))
+                db.commit()
+                flash('Result added successfully.')
+                return redirect(url_for('dashboard'))
+            except ValueError as ve:
+                error = str(ve)
+            except Exception as e:
+                error = f'Error adding result: {e}'
+
+    return render_template('add_result.html', students=students, quizzes=quizzes, error=error)
+
+
+if __name__ == '__main__':
+    # Ensure database exists
+    if not os.path.exists(app.config['DATABASE']):
+        print('Database not found. Run `python init_db.py` to create hw13.db with sample data.')
+    app.run(debug=True)
+```
+
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}IS211 Assignment 13{% endblock %}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    .error { color: red; }
+    .flash { color: green; }
+    .topnav { margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+  <div class="topnav">
+    {% if session.get('logged_in') %}
+      <a href="{{ url_for('dashboard') }}">Dashboard</a> |
+      <a href="{{ url_for('logout') }}">Logout</a>
+    {% else %}
+      <a href="{{ url_for('login') }}">Login</a>
+    {% endif %}
+  </div>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="flash">{% for m in messages %}{{ m }}{% endfor %}</div>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</body>
+</html>
+```
+
+
+```html
+{% extends 'base.html' %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<h2>Teacher Login</h2>
+<form method="post">
+  <label>Username: <input type="text" name="username"></label><br><br>
+  <label>Password: <input type="password" name="password"></label><br><br>
+  <button type="submit">Login</button>
+</form>
+{% if error %}
+  <p class="error">{{ error }}</p>
+{% endif %}
+{% endblock %}
+```
+
+
+```html
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h2>Dashboard</h2>
+
+<p>
+  <a href="{{ url_for('add_student') }}">Add Student</a> |
+  <a href="{{ url_for('add_quiz') }}">Add Quiz</a> |
+  <a href="{{ url_for('add_result') }}">Add Quiz Result</a>
+</p>
+
+<h3>Students</h3>
+<table>
+  <tr><th>ID</th><th>First Name</th><th>Last Name</th><th>Results</th></tr>
+  {% for s in students %}
+  <tr>
+    <td>{{ s.id }}</td>
+    <td>{{ s.first_name }}</td>
+    <td>{{ s.last_name }}</td>
+    <td><a href="{{ url_for('student_results', student_id=s.id) }}">View Results</a></td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h3>Quizzes</h3>
+<table>
+  <tr><th>ID</th><th>Subject</th><th>Num Questions</th><th>Quiz Date</th></tr>
+  {% for q in quizzes %}
+  <tr>
+    <td>{{ q.id }}</td>
+    <td>{{ q.subject }}</td>
+    <td>{{ q.num_questions }}</td>
+    <td>{{ q.quiz_date }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% endblock %}
+```
+
+
+```html
+{% extends 'base.html' %}
+{% block title %}Add Student{% endblock %}
+{% block content %}
+<h2>Add Student</h2>
+<form method="post">
+  <label>First name: <input type="text" name="first_name"></label><br><br>
+  <label>Last name: <input type="text" name="last_name"></label><br><br>
+  <button type="submit">Add Student</button>
+</form>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% endblock %}
+```
+
+
+```html
+{% extends 'base.html' %}
+{% block title %}Add Quiz{% endblock %}
+{% block content %}
+<h2>Add Quiz</h2>
+<form method="post">
+  <label>Subject: <input type="text" name="subject"></label><br><br>
+  <label>Number of questions: <input type="number" name="num_questions" min="0"></label><br><br>
+  <label>Quiz date: <input type="date" name="quiz_date"></label><br><br>
+  <button type="submit">Add Quiz</button>
+</form>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% endblock %}
+```
+
+
+```html
+{% extends 'base.html' %}
+{% block title %}Results for {{ student.first_name }} {{ student.last_name }}{% endblock %}
+{% block content %}
+<h2>Results for {{ student.first_name }} {{ student.last_name }}</h2>
+
+{% if not results %}
+  <p>No Results</p>
+{% else %}
+  <table>
+    <tr><th>Quiz ID</th><th>Subject</th><th>Score</th></tr>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.quiz_id }}</td>
+      <td>{{ r.subject }}</td>
+      <td>{{ r.score }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+
+{% endblock %}
+```
+
+```html
+{% extends 'base.html' %}
+{% block title %}Add Quiz Result{% endblock %}
+{% block content %}
+<h2>Add Quiz Result</h2>
+<form method="post">
+  <label>Student:
+    <select name="student_id">
+      <option value="">-- Select student --</option>
+      {% for s in students %}
+        <option value="{{ s.id }}">{{ s.id }} - {{ s.first_name }} {{ s.last_name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <br><br>
+  <label>Quiz:
+    <select name="quiz_id">
+      <option value="">-- Select quiz --</option>
+      {% for q in quizzes %}
+        <option value="{{ q.id }}">{{ q.id }} - {{ q.subject }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <br><br>
+  <label>Score: <input type="number" name="score" min="0" max="100"></label>
+  <br><br>
+  <button type="submit">Add Result</button>
+</form>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% endblock %}
+```
+
+
+
+
+
